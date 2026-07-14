@@ -14,7 +14,7 @@ data(swiss)
 head(swiss)
 ```
 
-# Q1: Relationship Between Examination and Fertility
+# Relationship Between Examination and Fertility
 
 We investigated the association between Examination scores and Fertility rates in 19th-century Swiss regions using Bayesian linear regression.
 
@@ -105,7 +105,7 @@ for (i in 1:10) {
 
 To visualise model uncertainty, we sampled 10 sets of regression parameters $(\beta,\sigma^2)$ from the posterior distribution. For each sample, we plotted the resulting regression line on the original scatter plot. The overlay of these lines illustrates the variation in the fitted relationship due to posterior uncertainty.
 
-# Q2: Relationship between Catholic and Fertility
+# Relationship between Catholic and Fertility
 
 We explored the association between religious adherence (Catholic) and Fertility across Swiss regions using Bayesian methods, incorporating a non-linear transformation of the Catholic variable.
 
@@ -194,7 +194,7 @@ curve(beta0_hat + beta1_hat * x,
 ``` 
 We extracted the posterior mean of the regression parameters and used these to assess model fit. The fitted line based on the posterior mean effectively captured the trend in the data, confirming that the transformation improved the model’s ability to represent the observed pattern between Catholicism and Fertility. 
 
-# Q3: Model Comparison Using Bayes Factors
+# Model Comparison Using Bayes Factors
 ```{r}
 # install.packages("BayesFactor")  # run once if needed
 library(BayesFactor)
@@ -220,7 +220,7 @@ To determine which model better explains Fertility in the swiss dataset, we comp
 We used the BayesFactor package in R to compute this comparison. The resulting Bayes Factor was approximately: $BF_{12} \approx 2.66$  
 This indicates only weak evidence in favour of Examination over Catholic.transform. Therefore, based on Bayesian model comparison, there is no strong evidence to conclude either model being the better fit for modelling fertility.  
 
-# Q4: Consider general linear models for modelling Fertility as a function of the covariates
+# Consider general linear models for modelling Fertility as a function of the covariates
 
 ### Model Selection
 ```{r}
