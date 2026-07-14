@@ -1,7 +1,8 @@
 ---
-title: "StatisticsCourseworkR2"
+title: "Bayesian Regression Analysis of Swiss Fertility Data"
+author: "Ruben"
+date: ""
 output: pdf_document
-date: "2025-04-23"
 ---
 
 ```{r setup, include = FALSE}
