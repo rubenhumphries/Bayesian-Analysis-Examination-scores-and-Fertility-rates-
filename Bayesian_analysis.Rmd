@@ -1,0 +1,369 @@
+---
+title: "StatisticsCourseworkR2"
+output: pdf_document
+date: "2025-04-23"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, echo = FALSE)
+```
+
+```{r, include = FALSE}
+# Load the Swiss dataset
+data(swiss)
+head(swiss)
+```
+
+# Q1: Relationship Between Examination and Fertility
+
+We investigated the association between Examination scores and Fertility rates in 19th-century Swiss regions using Bayesian linear regression.
+
+### Exploratory Analysis
+
+```{r, fig.width=5, fig.height=4}
+# Scatter plot between Examination and Fertility
+plot(swiss$Examination, swiss$Fertility,
+     xlab = "Examination",
+     ylab = "Fertility",
+     main = "Fertility vs Examination")
+
+# Calculate correlation
+cor(swiss$Examination, swiss$Fertility)
+
+```
+
+We began with an exploratory analysis to assess the nature of the relationship. A scatter plot of Fertility versus Examination suggested a possible negative linear trend, meaning regions with higher examination performance tended to have lower fertility rates. This initial observation was supported by a negative correlation coefficient.
+
+```{r}
+set.seed(123)
+n <- nrow(swiss)
+train_indices <- sample(1:n, size = floor(0.7 * n))
+train_data <- swiss[train_indices, ]
+test_data <- swiss[-train_indices, ]
+
+```
+
+### Model Specification
+
+To analyze this relationship more rigorously, we fit a Bayesian Normal linear model with Fertility as the response variable and Examination as the predictor. The model assumes the following priors:\
+- The regression coefficients $\beta$ follow a multivariate normal prior\
+$\beta|\sigma^2 \sim N(0,\sigma^2\cdot100I_p)$\
+- The variance $\sigma^2$ follows an inverse gamma prior\
+$\sigma^2 \sim IG(2,2)$
+
+```{r}
+# Design matrix and response
+X <- model.matrix(~ Examination, data = train_data)
+y <- train_data$Fertility
+
+# Prior parameters
+p <- ncol(X)
+V0 <- diag(100, p)        # Prior covariance (scaled identity)
+b0 <- rep(0, p)           # Prior mean
+a0 <- 2                   # IG shape
+d0 <- 2                   # IG scale
+
+# Posterior calculations
+Vn <- solve(solve(V0) + t(X) %*% X)
+bn <- Vn %*% (solve(V0) %*% b0 + t(X) %*% y)
+an <- a0 + nrow(X)/2
+dn <- d0 + 0.5 * (t(y) %*% y + t(b0) %*% solve(V0) %*% b0 - t(bn) %*% solve(Vn) %*% bn)
+
+```
+
+### Posterior Distribution
+
+```{r}
+cat("Posterior of beta ~ N(bn, sigma^2 * Vn)\n")
+cat("bn =", round(bn, 2), "\n")
+cat("Vn =", round(Vn, 2), "\n")
+cat("Posterior of sigma^2 ~ IG(", an, ",", dn, ")\n")
+```
+
+We derived the posterior distributions analytically, using conjugate priors. The posterior for $\beta$ remains a normal distribution: $\beta|\sigma^2, data \sim N(b_n,\sigma^2V_n)$ with $b_n$ = $\begin{bmatrix} 88.89\\-1.02 \end{bmatrix}$ and \( V_n = \left[ \begin{smallmatrix} 0.15 & -0.01 \\ -0.01 & 0 \end{smallmatrix} \right] \), and the posterior for $\sigma^2$ remains inverse-gamma: $\sigma^2|data \sim IG(18,1474.272)$. The posterior mean vector indicates an intercept of 88.89 and a slope of -1.02 for Examination, suggesting that higher Examination scores are strongly associated with lower Fertility.The posterior covariance matrix also shows relatively low uncertainty in the estimate, as reflected by the small diagonal values in $V_n$. The posterior distribution for $sigma^2$ has parameters $IG(18,1474.272)$, resulting in a posterior mean of approximately 86.7. This value reflects moderate variability in the model residuals.  
+
+### Parameter Sampling and Visualisation
+```{r, fig.width=4.5, fig.height=3.5}
+library(MASS) # for mvrnorm
+
+# Scatter plot for background
+plot(train_data$Examination, train_data$Fertility,
+     xlab = "Examination",
+     ylab = "Fertility",
+     main = "Posterior Sampled Regression Lines")
+
+# Sampling and plotting
+set.seed(456)
+for (i in 1:10) {
+  sigma2_sample <- 1 / rgamma(1, shape = an, rate = dn)
+  beta_sample <- mvrnorm(1, mu = bn, Sigma = sigma2_sample * Vn)
+  
+  # Regression line: y = beta0 + beta1 * x
+  abline(a = beta_sample[1], b = beta_sample[2], col = rgb(0,0,1,alpha=0.3))
+}
+```
+
+To visualise model uncertainty, we sampled 10 sets of regression parameters $(\beta,\sigma^2)$ from the posterior distribution. For each sample, we plotted the resulting regression line on the original scatter plot. The overlay of these lines illustrates the variation in the fitted relationship due to posterior uncertainty.
+
+# Q2: Relationship between Catholic and Fertility
+
+We explored the association between religious adherence (Catholic) and Fertility across Swiss regions using Bayesian methods, incorporating a non-linear transformation of the Catholic variable.
+
+### Exploratory Analysis
+
+```{r, fig.width=5, fig.height=4}
+# Scatter plot
+plot(swiss$Catholic, swiss$Fertility,
+     xlab = "Catholic (%)",
+     ylab = "Fertility",
+     main = "Fertility vs Catholic (%)")
+```
+
+We first examined the scatter plot of Fertility versus Catholic. The relationship appeared non-linear: Fertility increased sharply in regions where the Catholic percentage was high, suggesting that a quadratic or transformed model might better capture the association.
+
+### Transformation of the Catholic Variable
+
+```{r}
+# Choose alpha = 42 based on data distribution
+alpha <- 42
+swiss$Catholic.Transform <- (swiss$Catholic - alpha)^2
+```
+
+To model this non-linearity, we created a transformed variable:\  
+Catholic.Transform = (Catholic - $\alpha$)$^2$  
+We chose $\alpha=42$ after visually inspecting the data to center the transformation near the middle of the Catholic percentage range (0 to 100). This allows us to capture the curvature observed in the exploratory plot.
+
+### Bayesian Model Fitting
+
+```{r}
+set.seed(42)
+n <- nrow(swiss)
+train_indices <- sample(1:n, size = floor(0.7 * n))
+train_data <- swiss[train_indices, ]
+test_data <- swiss[-train_indices, ]
+
+# Design matrix and response
+X <- model.matrix(~ Catholic.Transform, data = train_data)
+y <- train_data$Fertility
+
+# Prior parameters
+p <- ncol(X)
+V0 <- diag(100, p)
+b0 <- rep(0, p)
+a0 <- 2
+d0 <- 2
+
+# Posterior calculations
+Vn <- solve(solve(V0) + t(X) %*% X)
+bn <- Vn %*% (solve(V0) %*% b0 + t(X) %*% y)
+an <- a0 + nrow(X)/2
+dn <- d0 + 0.5 * (t(y) %*% y + t(b0) %*% solve(V0) %*% b0 - t(bn) %*% solve(Vn) %*% bn)
+```
+
+We fit a Bayesian Normal linear model using Fertility as the response variable and Catholic.Transform as the predictor. We adopted the same priors as in Question 1:\ 
+- $\beta|\sigma^2 \sim N(0,\sigma^2\cdot100I_p)$\
+- $\sigma^2 \sim IG(2,2)$\ 
+These priors again express minimal prior knowledge and allow the data to influence the posterior distribution meaningfully. 
+
+### Posterior Distribution
+```{r}
+cat("Posterior of beta ~ N(bn, sigma^2 * Vn)\n")
+cat("bn =", round(bn, 2), "\n")
+cat("Posterior of sigma^2 ~ IG(", an, ",", dn, ")\n")
+```
+The posterior distribution for the regression coefficients was computed analytically using conjugate prior formulas. The resulting posterior distribution of $\beta$ is multivariate normal:  
+- $\beta|\sigma^2, data \sim N(b_n,\sigma^2V_n)$   
+where $b_n$ = $\begin{bmatrix} 56.67\\0.01 \end{bmatrix}$. This indicates a strong intercept and a near zero effect of the transformed catholic on fertility. The posterior distribution of variance is:  
+- $\sigma^2|data \sim IG(18,1861.919)$   
+The shape and scale parameters reflect the influence of 32 data points and prior information, with a posterior mean of approximately 109.5. The low magnitude of the regression slope suggests that $(Catholic - 42)^2$ is only weakly associated with fertility.
+
+### Posterior Mean and Model Fit 
+```{r posterior-curve-plot, fig.width=5, fig.height=4}
+# Use posterior mean (bn) for plotting
+beta0_hat <- bn[1]
+beta1_hat <- bn[2]
+
+# Plot training data with fitted curve
+plot(train_data$Catholic.Transform, train_data$Fertility,
+     xlab = "(Catholic - 42)^2",
+     ylab = "Fertility",
+     main = "Posterior Mean Fit: Fertility ~ Catholic.Transform")
+
+curve(beta0_hat + beta1_hat * x,
+      col = "blue", lwd = 2, add = TRUE)
+``` 
+We extracted the posterior mean of the regression parameters and used these to assess model fit. The fitted line based on the posterior mean effectively captured the trend in the data, confirming that the transformation improved the model’s ability to represent the observed pattern between Catholicism and Fertility. 
+
+# Q3: Model Comparison Using Bayes Factors
+```{r}
+# install.packages("BayesFactor")  # run once if needed
+library(BayesFactor)
+``` 
+```{r, message=FALSE, warning=FALSE} 
+# Create the transformed variable within the same data frame
+alpha <- 42
+swiss$Catholic.Transform <- (swiss$Catholic - alpha)^2
+
+# Compute Bayes Factors using the same data frame
+bf1 <- regressionBF(Fertility ~ Examination, data = swiss)
+bf2 <- regressionBF(Fertility ~ Catholic.Transform, data = swiss)
+
+# Compare the models
+BF_12 <- bf1 / bf2
+
+# Display result
+BF_12
+``` 
+To determine which model better explains Fertility in the swiss dataset, we computed a Bayes Factor comparing:  
+- Model 1: Fertility $\sim$ Examination  
+- Model 2: Fertility $\sim$ (Catholic - 42)$^2$  
+We used the BayesFactor package in R to compute this comparison. The resulting Bayes Factor was approximately: $BF_{12} \approx 2.66$  
+This indicates only weak evidence in favour of Examination over Catholic.transform. Therefore, based on Bayesian model comparison, there is no strong evidence to conclude either model being the better fit for modelling fertility.  
+
+# Q4: Consider general linear models for modelling Fertility as a function of the covariates
+
+### Model Selection
+```{r}
+# Load required packages
+library(MASS)
+
+# Load and clean data
+data(swiss)
+swiss_clean <- swiss[!rownames(swiss) %in% c("Porrentruy", "Sierre", "Rive Gauche"), ]
+swiss_clean$logFertility <- log(swiss_clean$Fertility)
+swiss_clean$Catholic_transform <- (swiss_clean$Catholic - 42)^2
+
+# Train/test split
+set.seed(123)
+train_idx <- sample(1:nrow(swiss_clean), size = 0.7 * nrow(swiss_clean), replace = FALSE)
+train_data <- swiss_clean[train_idx, ]
+test_data <- swiss_clean[-train_idx, ]
+```
+Before choosing a model, I examined posterior distributions, histograms, and predictive performance using root mean square error (RMSE). I found that the model logFertility ~ Agriculture + Education + Catholic.transform + Infant.Mortality balances interpretability with predictive accuracy, and is supported by Bayes factor comparisons, where catholic.transform = $(Catholic - 42)^2$. Variables like Examination did not add predictive power, while log-transforming Fertility and transforming Catholic improved linearity and model assumptions. Although transforming variables such as Education improved linearity in exploratory plots, the transformations worsened RMSE and Bayes factor comparisons, leading to the selection of the untransformed predictors. I considered removing variables such as Agriculture and Infant.Mortality in order to value simplicity, however Bayes factor comparisons and RMSE did not support this, therefore I decided to retain them. Additionally, I removed the observations "Porrentruy", "Sierre", and "Rive Gauche", as these points exhibited high influence and leverage in diagnostic plots. Their removal resulted in a substantial reduction in RMSE, improving model robustness and generalization. We adopted the same priors as in Question 1 and 2:\    
+- $\beta|\sigma^2 \sim N(0,\sigma^2\cdot100I_p)$\
+- $\sigma^2 \sim IG(2,2)$\   
+And the final selected model is:  
+$log(Fertility_i) = \beta_0 + \beta_1Agriculture_i + \beta_2Education_i + \beta_3Catholic.transform_i + \beta_4Infant.Mortality_i + \epsilon_i$  
+where $\epsilon \sim N(0, \sigma^2)$ 
+
+
+```{r}
+# Model matrix for training data using Catholic_transform
+X <- model.matrix(logFertility ~ Agriculture + Education + Catholic_transform + Infant.Mortality, data = train_data)
+y <- train_data$logFertility
+n <- nrow(X)
+p <- ncol(X)
+
+# Priors
+prior_beta_mean <- rep(0, p)
+prior_beta_var <- 100
+prior_sigma_shape <- 2
+prior_sigma_scale <- 2
+
+# Posterior calculations
+post_beta_cov <- solve(t(X) %*% X + diag(1 / prior_beta_var, p))
+post_beta_mean <- post_beta_cov %*% t(X) %*% y
+
+SSR <- sum((y - X %*% post_beta_mean)^2)
+post_sigma_shape <- prior_sigma_shape + n / 2
+post_sigma_scale <- prior_sigma_scale + 0.5 * (SSR + t(post_beta_mean) %*% post_beta_mean / prior_beta_var)
+
+# Sampling
+n_samples <- 10000
+sigma_samples <- sqrt(1 / rgamma(n_samples, shape = post_sigma_shape, rate = post_sigma_scale))
+beta_samples <- matrix(NA, nrow = n_samples, ncol = p)
+
+for (i in 1:n_samples) {
+  beta_cov_i <- post_beta_cov * sigma_samples[i]^2
+  beta_samples[i, ] <- MASS::mvrnorm(1, mu = post_beta_mean, Sigma = beta_cov_i)
+}
+
+colnames(beta_samples) <- colnames(X)
+```
+
+
+### Posterior Histograms 
+Below are histograms of the posterior samples for each parameter. The posterior samples of parameters appeared approximately normal, supporting the use of normal approximations for credible intervals.
+
+```{r, fig.width=10, fig.height=6}
+par(mfrow = c(2, 3))
+hist(beta_samples[,1], main = "Intercept", col = "skyblue", xlab = "Value")
+hist(beta_samples[,2], main = "Agriculture", col = "lightgreen", xlab = "Value")
+hist(beta_samples[,3], main = "Education", col = "lightcoral", xlab = "Value")
+hist(beta_samples[,4], main = "Catholic_transform", col = "orange", xlab = "Value")
+hist(beta_samples[,5], main = "Infant Mortality", col = "plum", xlab = "Value")
+hist(sigma_samples, main = "Sigma", col = "lightgrey", xlab = "Value")
+```
+
+```{r}
+round(colMeans(beta_samples), 4)
+```
+### Model Diagnostics
+
+To assess whether the assumptions of linear regression were reasonably met, I examined the diagnostic plots of the final model fitted on the training set.
+
+These included:
+
+- **Residuals vs Fitted**: to check for linearity and constant variance (homoscedasticity).
+- **Normal Q-Q**: to assess the normality of residuals.
+
+```{r}
+# Residuals diagnostics (log scale)
+par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
+
+fitted_log <- X %*% colMeans(beta_samples)
+residuals_log <- y - fitted_log
+
+# Residuals vs Fitted
+plot(fitted_log, residuals_log,
+     xlab = "Fitted Values (log scale)",
+     ylab = "Residuals",
+     main = "Residuals vs Fitted",
+     pch = 16, col = "blue")
+abline(h = 0, col = "red", lwd = 2)
+
+# Q-Q Plot
+qqnorm(residuals_log,
+       main = "Normal Q-Q Plot of Residuals",
+       col = "darkgreen", pch = 16)
+qqline(residuals_log, col = "red", lwd = 2)
+```
+Residuals vs Fitted plot: The residuals appeared randomly scattered around zero, suggesting that the model does not violate the assumption of linearity or homoscedasticity. No clear patterns or curvature were observed.  
+  
+Q-Q plot: The Q-Q plot showed that the residuals were approximately normally distributed, with only mild deviation in the tails. This supports the normality assumption of the Bayesian linear model.  
+
+```{r}
+# Model matrix for test data with Catholic_transform
+X_test <- model.matrix(logFertility ~ Agriculture + Education + Catholic_transform + Infant.Mortality, data = test_data)
+pred_matrix <- matrix(NA, nrow = nrow(X_test), ncol = n_samples)
+
+for (i in 1:n_samples) {
+  pred_matrix[, i] <- X_test %*% beta_samples[i, ] + rnorm(nrow(X_test), 0, sigma_samples[i])
+}
+
+mean_log_preds <- rowMeans(pred_matrix)
+predicted_fertility <- exp(mean_log_preds)
+
+comparison <- data.frame(
+  Actual = test_data$Fertility,
+  Predicted = predicted_fertility,
+  Residual = test_data$Fertility - predicted_fertility
+)
+``` 
+  
+RMSE was calculated using a 70/30 train-test split, which provided a good indication of model accuracy on unseen data. The model achieved a root mean squared error (RMSE) of 5.7 on the original Fertility scale, which reflects strong predictive accuracy given the range of values in the data set.
+
+```{r}
+rmse <- sqrt(mean(comparison$Residual^2))
+cat("RMSE:", round(rmse, 2), "\n")
+
+plot(comparison$Actual, comparison$Predicted,
+     xlab = "Actual Fertility", ylab = "Predicted Fertility",
+     main = "Predicted vs Actual Fertility",
+     col = "blue", pch = 16)
+abline(0, 1, col = "red", lwd = 2)
+```
+The predicted values of Fertility closely followed the actual values, with most points clustering around the 45-degree line. This suggests that the model performs well in capturing the overall pattern of fertility across the provinces. The lack of strong deviation from the line also indicates minimal bias in predictions.  
+  
+### Conclusion
+The final model, using log-transformed Fertility and including Agriculture, Education, Catholic.transform, and Infant Mortality, demonstrated strong explanatory power with an adjusted $R^2$ of 77.9%. All coefficients were statistically significant and aligned with theoretical expectations. While transformations of predictors were explored, they did not improve model performance and were excluded from the final specification. Model diagnostics showed no major violations of assumptions, and the RMSE remained low at 5.7, suggesting the model generalizes well. This confirms the model as a robust and interpretable tool for understanding fertility variation across Swiss provinces. 
